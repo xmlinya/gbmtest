@@ -877,6 +877,7 @@ int main(int argc, char *argv[])
 #define TEST1 0   // success
 #define TEST2 0   // failure
 #define TEST3 1   // failure
+#define TEST4 0   // failure
 
 #if TEST1
 	while (1) {
@@ -938,6 +939,24 @@ int main(int argc, char *argv[])
 		exit_gl(); 
 		exit_gbm();
 	}
+
+#elif TEST4
+	ret = init_gbm();
+	if (ret) {
+		printf("failed to initialize GBM\n");
+		return ret;
+	}
+
+	while (1) {
+		ret = init_gl();
+		if (ret) {
+			printf("failed to initialize EGL\n");
+			return ret;
+		}
+
+		exit_gl();
+	}
+	exit_gbm();
 #endif
 
 	exit_drm();
