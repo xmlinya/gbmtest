@@ -384,6 +384,7 @@ static int init_drm(void)
 
 static int init_gbm(void)
 {
+	printf("enter init_gbm\n");
 	gbm.dev = gbm_create_device(drm.fd);
 
 	gbm.surface = gbm_surface_create(gbm.dev,
@@ -402,7 +403,7 @@ static int init_gl(void)
 {
 	EGLint major, minor, n;
 	GLint ret;
-
+	printf("enter init_gl\n");
 	static const GLfloat vVertices[] = {
 			// front
 			-1.0f, -1.0f, +1.0f, // point blue
@@ -690,6 +691,7 @@ static int init_gl(void)
 
 static void exit_gbm(void)
 {
+	printf("enter exit_gbm\n");
         gbm_surface_destroy(gbm.surface);
         gbm_device_destroy(gbm.dev);
         return;
@@ -697,6 +699,7 @@ static void exit_gbm(void)
 
 static void exit_gl(void)
 {
+	printf("enter exit_gl\n");
         glDeleteProgram(gl.program);
         glDeleteBuffers(1, &gl.vbo);
         glDeleteShader(gl.fragment_shader);
@@ -859,11 +862,6 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (all_display) {
-		printf("### Enabling all displays\n");
-		connector_id = -1;
-	}
-
 	ret = init_drm();
 	if (ret) {
 		printf("failed to initialize DRM\n");
@@ -876,103 +874,73 @@ int main(int argc, char *argv[])
 	FD_ZERO(&fds);
 	FD_SET(drm.fd, &fds);
 
-	ret = init_gbm();
-	if (ret) {
-		printf("failed to initialize GBM\n");
-		return ret;
-	}
+#define TEST1 0   // success
+#define TEST2 0   // failure
+#define TEST3 1   // failure
 
-	ret = init_gl();
-	if (ret) {
-		printf("failed to initialize EGL\n");
-		return ret;
-	}
-
-	/* clear the color buffer */
-	glClearColor(0.5, 0.5, 0.5, 1.0);
-	glClear(GL_COLOR_BUFFER_BIT);
-	eglSwapBuffers(gl.display, gl.surface);
-	bo = gbm_surface_lock_front_buffer(gbm.surface);
-	fb = drm_fb_get_from_bo(bo);
-
-	/* set mode: */
-	if (all_display) {
-		for (i=0; i<drm.ndisp; i++) {
-			ret = drmModeSetCrtc(drm.fd, drm.crtc_id[i], fb->fb_id, 0, 0,
-					&drm.connector_id[i], 1, drm.mode[i]);
-			if (ret) {
-				printf("display %d failed to set mode: %s\n", i, strerror(errno));
-				return ret;
-			}
-		}
-	} else {
-		ret = drmModeSetCrtc(drm.fd, drm.crtc_id[DISP_ID], fb->fb_id,
-				0, 0, &drm.connector_id[DISP_ID], 1, drm.mode[DISP_ID]);
+#if TEST1
+	while (1) {
+		struct gbm_bo *next_bo;
+		int cc;
+		
+		ret = init_gbm();
 		if (ret) {
-			printf("display %d failed to set mode: %s\n", DISP_ID, strerror(errno));
+			printf("failed to initialize GBM\n");
 			return ret;
 		}
+		exit_gbm();
 	}
-
-	while (frame_count != 0) {
+	
+#elif TEST2
+	while (1) {
 		struct gbm_bo *next_bo;
-		int waiting_for_flip;
 		int cc;
+		
+		ret = init_gbm();
+		if (ret) {
+			printf("failed to initialize GBM\n");
+			return ret;
+		}
+		
+		ret = init_gl();
+		if (ret) {
+			printf("failed to initialize EGL\n");
+			return ret;
+		}
 
+		exit_gl(); 
+		exit_gbm();
+	}
+	
+#elif TEST3
+	while (1) {
+		struct gbm_bo *next_bo;
+		int cc;
+		
+		ret = init_gbm();
+		if (ret) {
+			printf("failed to initialize GBM\n");
+			return ret;
+		}
+		
+		ret = init_gl();
+		if (ret) {
+			printf("failed to initialize EGL\n");
+			return ret;
+		}
+		
 		draw(i++);
 
 		eglSwapBuffers(gl.display, gl.surface);
 		next_bo = gbm_surface_lock_front_buffer(gbm.surface);
-		fb = drm_fb_get_from_bo(next_bo);
+		gbm_surface_release_buffer(gbm.surface, next_bo);
 
-		/*
-		 * Here you could also update drm plane layers if you want
-		 * hw composition
-		 */
-
-		if (all_display) {
-			for (cc=0;cc<drm.ndisp; cc++) {
-				ret = drmModePageFlip(drm.fd, drm.crtc_id[cc], fb->fb_id,
-					DRM_MODE_PAGE_FLIP_EVENT, &waiting_for_flip);
-				if (ret) {
-					printf("failed to queue page flip: %s\n", strerror(errno));
-					return -1;
-				}
-			}
-			waiting_for_flip = drm.ndisp;
-		} else {
-			ret = drmModePageFlip(drm.fd, drm.crtc_id[DISP_ID], fb->fb_id,
-					DRM_MODE_PAGE_FLIP_EVENT, &waiting_for_flip);
-			if (ret) {
-				printf("failed to queue page flip: %s\n", strerror(errno));
-				return -1;
-			}
-			waiting_for_flip = 1;
-		}
-
-		while (waiting_for_flip) {
-			ret = select(drm.fd + 1, &fds, NULL, NULL, NULL);
-			if (ret < 0) {
-				printf("select err: %s\n", strerror(errno));
-				return ret;
-			} else if (ret == 0) {
-				printf("select timeout!\n");
-				return -1;
-			} else if (FD_ISSET(0, &fds)) {
-				continue;
-			}
-			drmHandleEvent(drm.fd, &evctx);
-		}
-
-		/* release last buffer to render on again: */
-		gbm_surface_release_buffer(gbm.surface, bo);
-		bo = next_bo;
-
-                if(frame_count >= 0)
-		        frame_count--;
+		exit_gl(); 
+		exit_gbm();
 	}
+#endif
 
-	cleanup_kmscube();
+	exit_drm();
 	printf("\n Exiting kmscube \n");
 
 	return ret;
